@@ -108,13 +108,18 @@ def criterion_d(y_disc_r, y_disc_gen, fmap_r_det, fmap_gen_det, y_df_hat_r,
 
 def criterion_g(commit_loss, x, G_x, fmap_r, fmap_gen, y_disc_r, y_disc_gen,
                 y_df_hat_r, y_df_hat_g, fmap_f_r, fmap_f_g, y_ds_hat_r,
-                y_ds_hat_g, fmap_s_r, fmap_s_g, args):
+                y_ds_hat_g, fmap_s_r, fmap_s_g, 
+                distillation_cont_loss=None, distillation_pseudo_loss=None, args=None):
     adv_g_loss = adversarial_g_loss(y_disc_gen)
     feat_loss = (feature_loss(fmap_r, fmap_gen) + sim_loss(
         y_disc_r, y_disc_gen) + feature_loss(fmap_f_r, fmap_f_g) + sim_loss(
             y_df_hat_r, y_df_hat_g) + feature_loss(fmap_s_r, fmap_s_g) +
                  sim_loss(y_ds_hat_r, y_ds_hat_g)) / 3.0
     rec_loss = reconstruction_loss(x.contiguous(), G_x.contiguous(), args)
+    if distillation_cont_loss is not None and distillation_pseudo_loss is not None:
+        distillation_loss = (distillation_cont_loss + distillation_pseudo_loss) / 2.0
+        total_loss = args.LAMBDA_COM * commit_loss + args.LAMBDA_ADV * adv_g_loss + args.LAMBDA_FEAT * feat_loss + args.LAMBDA_REC * rec_loss +\
+            args.LAMBDA_DISTILL * distillation_loss
     total_loss = args.LAMBDA_COM * commit_loss + args.LAMBDA_ADV * adv_g_loss + args.LAMBDA_FEAT * feat_loss + args.LAMBDA_REC * rec_loss
     return total_loss, adv_g_loss, feat_loss, rec_loss
 
@@ -164,6 +169,8 @@ def loss_g(codebook_loss,
            fmap_s_g,
            last_layer=None,
            is_training=True,
+           distillation_cont_loss=None,
+           distillation_pseudo_loss=None,
            args=None):
     """
     args:
@@ -191,6 +198,8 @@ def loss_g(codebook_loss,
     adv_msd_loss = adversarial_g_loss(y_ds_hat_g)
     adv_loss = (adv_g_loss + adv_mpd_loss + adv_msd_loss
                 ) / 3.0  # NOTE(lsx): need to divide by 3?
+    if distillation_cont_loss is not None and distillation_pseudo_loss is not None:
+        distillation_loss = (distillation_cont_loss + distillation_pseudo_loss) / 2.0
     feat_loss = feature_loss(
         fmap_r,
         fmap_gen)  #+ sim_loss(y_disc_r, y_disc_gen) # NOTE(lsx): need logits?
@@ -212,8 +221,13 @@ def loss_g(codebook_loss,
     else:
         fm_loss_wt = args.LAMBDA_FEAT
     #feat_factor = adopt_weight(args.LAMBDA_FEAT, global_step, threshold=args.discriminator_iter_start)
-    loss = rec_loss + d_weight * disc_factor * adv_loss + \
-           fm_loss_wt * feat_loss_tot + args.LAMBDA_COM * codebook_loss
+    if distillation_cont_loss is not None and distillation_pseudo_loss is not None:
+        loss = rec_loss + d_weight * disc_factor * adv_loss + \
+            fm_loss_wt * feat_loss_tot + args.LAMBDA_COM * codebook_loss + \
+            args.LAMBDA_DISTILL * distillation_loss
+    else:
+        loss = rec_loss + d_weight * disc_factor * adv_loss + \
+            fm_loss_wt * feat_loss_tot + args.LAMBDA_COM * codebook_loss
     return loss, rec_loss, adv_loss, feat_loss_tot, d_weight
 
 
